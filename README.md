@@ -1,2 +1,2 @@
 # ZLPLL
-Copy of Wayne Knowels ZL2BKC ZLPLL ZLPLL-14G Code
+Copy of Wayne Knowles ZL2BKC ZLPLL ZLPLL-14G Code
