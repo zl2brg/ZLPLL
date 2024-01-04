@@ -1,2 +1,4 @@
-# ZLPLL
-Copy of Wayne Knowles ZL2BKC ZLPLL ZLPLL-14G Code. Imported v4.2A from his avrstudio project and added open source licences along with Linux Makefile build support.
+# v3 ZLPLL
+copy of Wayne Knowles ZL2BKC version 3.1b ADF4540 ZLPLL source code.Added open source licences along with Linux Makefile build support.
+
+
