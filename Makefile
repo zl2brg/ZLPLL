@@ -1,70 +1,83 @@
-BUILDDIR := build
+###############################################################################
+# Makefile for the project LO
+###############################################################################
+
+## General Flags
+PROJECT = LO
+MCU = attiny84
+TARGET = LO.elf
+CC = avr-gcc
+
+CPP = avr-g++
+
+## Options common to compile, link and assembly rules
+COMMON = -mmcu=$(MCU)
+
+## Compile options common for all C compilation units.
+CFLAGS = $(COMMON)
+CFLAGS += -Wall -gdwarf-2                               -DF_CPU=8000000UL -Os -fsigned-char -funsigned-bitfields -fpack-struct -fshort-enums
+CFLAGS += -MD -MP -MT $(*F).o -MF dep/$(@F).d 
+
+## Assembly specific flags
+ASMFLAGS = $(COMMON)
+ASMFLAGS += $(CFLAGS)
+ASMFLAGS += -x assembler-with-cpp -Wa,-gdwarf2
+
+## Linker flags
+LDFLAGS = $(COMMON)
+LDFLAGS +=  -Wl,-Map=LO.map
 
 
-CPU := atmega328p
-CC 	:= avr-gcc
-CPP := avr-gcc -E
-ARCH_OPTS := -mmcu=$(CPU) -mcall-prologues -fno-jump-tables
-OPTIMISE_OPTS := -Os -fno-if-conversion -finline-limit=10
-COMPLIANCE_OPTS := -Wall -Wno-pointer-sign
+## Intel Hex file production flags
+HEX_FLASH_FLAGS = -R .eeprom -R .fuse -R .lock -R .signature
 
-DEBUG_OPTS := -gstabs $(SAVE_TEMPS)
-CFLAGS  := $(ARCH_OPTS) -D F_CPU=8000000 $(OPTIMISE_OPTS) $(COMPLIANCE_OPTS) $(VERSION_DEFS) $(USER_DEFS)  -I '/usr/lib/avr/include'
-
-LINKER    :=avr-gcc
-LDFLAGS    = -mmcu=$(CPU) -D F_CPU=8000000 -Wl,--cref,-Map=zlpll.map,-u,vfprintf -lprintf_flt -lm
-
-INCLUDES := $(patsubst %,-I %,$(INCLUDE))
-SYSINCLUDES := $(patsubst %,-I %,$(SYSINCLUDE))
-
-SOURCES += zlpll.c
-SOURCES += adf5355.c
-SOURCES += adf5355.c
-SOURCES += encoder.c
-SOURCES += i2c_slave.c
-SOURCES += i2c.c
-SOURCES += lcd.c
-SOURCES += lcd_bargraph.c
-SOURCES += menu.c
-SOURCES += mgm.c
-SOURCES += usart.c
-SOURCES += twi.c
-
-HEADERS += zlpll.h
-HEADERS += adf5355.h
-HEADERS += cw.h
-HEADERS += encoder.h
-HEADERS += i2c_slave.h
-HEADERS += i2c.h
-HEADERS += lcd.h
-HEADERS += menu.h
-HEADERS += mgm.h
-HEADERS += usart.h
-HEADERS += twi.h
-HEADERS += config.h
+HEX_EEPROM_FLAGS = -j .eeprom
+HEX_EEPROM_FLAGS += --set-section-flags=.eeprom="alloc,load"
+HEX_EEPROM_FLAGS += --change-section-lma .eeprom=0 --no-change-warnings
 
 
-OBJS := $(SOURCES:.c=.o) $(ASOURCE:.S=.o)
+## Libraries
+LIBS = -lm 
 
+## Objects that must be built in order to link
+OBJECTS = LO.o softuart.o 
 
-# a.out
-a.out: $(OBJS)
-	${LINKER} ${LDFLAGS} -o $@ ${filter-out %.a %.so, $^} ${LOADLIBES}
-	avr-objcopy -O ihex a.out zlpll.hex
-	avrdude -p m328p -c avrisp2 -e -U flash:w:zlpll.hex:i
+## Objects explicitly added by the user
+LINKONLYOBJECTS = 
 
+## Build
+all: $(TARGET) LO.hex LO.eep LO.lss size
 
+## Compile
+LO.o: LO.c
+	$(CC) $(INCLUDES) $(CFLAGS) -c  $<
 
-all: $(HEADERS) $(SOURCES)
+softuart.o: softuart.c
+	$(CC) $(INCLUDES) $(CFLAGS) -c  $<
 
-%.c.o:
-	$(info DEPS="$(DEPS)")
-	$(COMPILE) $(OPTIONS) -c -o $@ $<
+##Link
+$(TARGET): $(OBJECTS)
+	 $(CC) $(LDFLAGS) $(OBJECTS) $(LINKONLYOBJECTS) $(LIBDIRS) $(LIBS) -o $(TARGET)
 
+%.hex: $(TARGET)
+	avr-objcopy -O ihex $(HEX_FLASH_FLAGS)  $< $@
 
+%.eep: $(TARGET)
+	-avr-objcopy $(HEX_EEPROM_FLAGS) -O ihex $< $@ || exit 0
 
-.PHONY : clean
+%.lss: $(TARGET)
+	avr-objdump -h -S $< > $@
+
+size: ${TARGET}
+	@echo
+	@avr-size -C --mcu=${MCU} ${TARGET}
+
+## Clean target
+.PHONY: clean
 clean:
-	@${RM} *.out $(SOURCES:.c=.i) $(SOURCES:.c=.s)
-	@${RM} *.o
-	@${RM} -rf $(BUILDDIR)
+	-rm -rf $(OBJECTS) LO.elf dep/* LO.hex LO.eep LO.lss LO.map
+
+
+## Other dependencies
+-include $(shell mkdir dep 2>NUL) $(wildcard dep/*)
+
