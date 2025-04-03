@@ -3,7 +3,7 @@
  *
  *  ADF435x version
  *
- *   Copyright (C) 2008-2022 Wanye Knowles ZL2BKC. 2023 Simon Eatough ZL2BRG
+ *   Copyright (C) 2008-2023 Wanye Knowles ZL2BKC,2025 Simon Eatough ZL2BRG
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -44,7 +44,7 @@
 // Rev 3.1D	WDK	3-Oct-2013
 //	- Frequency set to 0 MHz enables external PLL
 //	  support for connection to Multi Beacon Controller (MBC)
-//      - Channel spacing (N) chnaged from MHz to Hz
+//      - Channel spacing (N) changed from MHz to Hz
 //
 //      - Add V command for setting the RDIV value
 //      - Set E to 0 to disable external ref selection
@@ -98,6 +98,9 @@
 //
 //  Rev 4.2A
 //		-	Reference divisor (RDIV) improvements with pfd command.
+//	Rev V4.4A
+//      - Fixed floating point precision register calculation inaccuracies by moving to 64/32bit integer math. 
+//      - Register calculations are based on Andy G4JNT's code. Frequency calculation now accurate to 10Hz below 6.8Ghz and //		- 20Hz above.
 // 
 // TODO:
 //		Check I2C Pullups to stop lockup at power on
@@ -133,7 +136,6 @@ uint16_t sweep;
 #endif
 uint8_t channel;
 
-//uint8_t level, multiplier;
 uint8_t clkmode;
 volatile uint8_t extcnt;
 volatile uint8_t load_freq;
@@ -196,8 +198,9 @@ uint8_t	 lcd_active, dial_active;
 
 #define TIME_1SEC	(t1sec)  // 1 second of interrupts
 
-void set_freq(float);
+void set_freq(uint32_t);
 void rf_envelope(uint8_t op);
+void set_rflevel(int8_t enable, int8_t level);
 
 struct config_data cf;
 struct zlpll_data  rf;
@@ -367,7 +370,6 @@ struct t_mtab morsetab[] = {
 
 void cw_start(uint8_t type, uint8_t *msg, uint8_t delay) {
 	uint8_t cw_wpm;
-
 	cw_wpm = cf.cw_speed;
 	if (cw_wpm < 5 || cw_wpm > 50)
 		cw_wpm = 12;
@@ -496,8 +498,10 @@ void rf_envelope(uint8_t op) {
 // Timer callback interrupt, called from soft serial timer interrupt routine
 void timer_callback()
 {
+
 #if CW_BEACON
-		if (rf.rf_freq == 0.0)
+
+		if (rf.rf_freq == 0)
 			return;
 		if (key_down) {
 			// Have just sent a dot or dash, need to send a gap before
@@ -534,13 +538,12 @@ void save_config() {
 	eeprom_write_block(&cf,	(char *)(EEPROM_CONF),	sizeof(cf));
 }
 
-void set_freq(float freq) {
+void set_freq(uint32_t freq) {
 	// Disable all timer operations
 	softint_timer = 0;
 	intcnt = 0;
 	opdelay = 0;
-
-	DEBUG(PLL>3, "set_freq(%f)", freq);
+	DEBUG(PLL>3, "set_freq(%lu)", freq);
 
 	// We may have been powered down previously and SPI mode disabled.  Ensure SPI mode
 	// is enabled again so we can program the PLL
@@ -735,7 +738,7 @@ void cmd_adc() {
 }
 
 
-void cmd_freq(double freq) {
+void cmd_freq(uint32_t freq) {
 	rf.rf_freq = freq;
 #if SWEEP
 	start_freq = rf.rf_freq;
@@ -750,10 +753,8 @@ void cmd_help() {
 		PRINTLN("save #            Save channel");
 		PRINTLN("freq #.###        Set RF frequency");
 		PRINTLN("level #           Set RF Level (0=0ff to 4=High)");
-		PRINTLN("multiplier #      Set external multiplier factor");
 		PRINTLN("config param #    Setup PLL Parameters");
-		PRINTLN("ref_int #.##      Reference frequency - Internal");
-		PRINTLN("ref_ext #.##       Reference frequency - External");
+		PRINTLN("ref #.##       Reference frequency - External");
 		PRINTLN("diag              Display PLL data for channel");
 		PRINTLN("debug # #         Display debugging information");
 		PRINTLN("test              Enter RF Test mode");
@@ -763,6 +764,8 @@ void cmd_help() {
 		PRINTLN("cal               TCXO Frequency calibration");
 #endif
 		PRINTLN("show              Display current config");
+		PRINTLN("default		   Reset configuration to default");
+
 }
 
 void cmd_cwtext(int16_t arg) {
@@ -840,14 +843,8 @@ void cmd_config(uint8_t argc, char *argv[]) {
 		cf.spur = val & 0x01;
 	else if (strcasecmp_P(argv[1], PSTR("mtld"))==0)
 		cf.mtld = val & 0x01;
-	else if (strcasecmp_P(argv[1], PSTR("doubler"))==0)
-		cf.max_doubler = val;
 	else if (strcasecmp_P(argv[1], PSTR("csr"))==0)
 		cf.csr = val & 0x01;
-	else if (strcasecmp_P(argv[1], PSTR("gcd"))==0)
-		cf.gcd = val & 0x01;
-	else if (strcasecmp_P(argv[1], PSTR("pfd"))==0)
-		cf.pfd_freq = val;
 #if _ADF5355
 	else if (strcasecmp_P(argv[1], PSTR("bleed"))==0)
 		cf.bleed = val;
@@ -868,12 +865,12 @@ err:
 void cmd_diag() {
 		uint8_t  i, max;
 
-		PRINTLN("RF Freq:      %12.3f", rf.rf_freq);
+		PRINTLN("RF Freq:      %lu", rf.rf_freq);
 		PRINTLN("PLL Freq:     %12.3f", PLL.freq);
 		PRINTLN("R Freq:       %12.3f", PLL.ref);
 		PRINTLN("Freq Error:   %+.2f Hz", PLL.freqerr*1e6);
 		PRINTLN("  RDIV=%d, INT=%d, FRAC=%d, MOD=%d",
-					PLL.RDIV, PLL.INT, PLL.FRAC, PLL.MOD);
+					PLL.RDIV, PLL.INT, PLL.FRAC1, PLL.MOD);
 		crlf();
 #if _ADF5355
 		max = 12;
@@ -1020,33 +1017,10 @@ void cmd_show_config() {
 	uint8_t *ptr, c;
 #endif
 
-	PRINT("Frequency:  %10.3f", rf.rf_freq/rf.mult);
-	if (rf.mult > 1) {
-		PRINT(" *%d (RF=%.3f)", rf.mult, rf.rf_freq);
-	}
-	
-#if _ADF5355
-	if (rf.rdiv >= 2 && rf.rf_freq > 6800.0) {
-		PRINT (" + %10.3f", rf.rf_freq/rf.rdiv);
-	}
-#endif
-	
+	PRINT("Frequency:  %lu", rf.rf_freq);
 	crlf();
 	PRINTLN("Level:       %d", rf.level);
-	PRINTLN("Step Size:   %.2f Hz", rf.step);
-#if _ADF4351
-	PRINTLN("Ref Div:     %d",  rf.rdiv);
-#endif
-	crlf();
-	PRINTLN("Internal Ref: %8.3f MHz", cf.int_ref);
-#if _ADF4351
-	PRINTLN("External Ref: %8.3f MHz  (level >= %d)", cf.ext_ref, cf.extlevel);
-#endif
-
-	PRINTLN("Config:       doubler=%d MHz, pfd=%d MHz", cf.max_doubler, cf.pfd_freq);
-#if _ADF4351
-	PRINTLN("Config:       cp=%d, maxmod=%d", 	cf.charge_pump, cf.maxmod);
-#endif
+	PRINTLN("Ref Freq: %lu MHz", cf.ext_ref);
 #if _ADF5355
 	PRINTLN("Config:       cp=%d, bleed=%d",	cf.charge_pump, cf.bleed);
 #endif
@@ -1069,13 +1043,10 @@ void cmd_show_config() {
 
 	crlf();
 	wdt_reset();
-	for (i=0; i < CHANNELS; i++) {
+	for (i=0; i < MAX_CHANNELS; i++) {
 		eeprom_read_block(&eedata, (char *)(EEPROM_CHAN+sizeof(eedata)*i),	sizeof(eedata));
-		PRINT("%f:",eeprom_read_float(EEPROM_CHAN));
 
-		PRINT("%2d:   Freq %10.3f  level=%d", i, (float)eedata.rf_freq, eedata.level);
-		if (eedata.mult > 1)
-			PRINT(" Mult=%d (%12.4f)", eedata.mult,  (double)eedata.rf_freq/eedata.mult );
+		PRINT("%2d:   Freq %lu  level=%d", i, eedata.rf_freq, eedata.level);
 		PRINT(" mode=%d (", eedata.mode); 
 		switch (eedata.mode) {
 			case 0:	PRINT("LO, RFOFF");	break;
@@ -1084,9 +1055,7 @@ void cmd_show_config() {
 			case 3: PRINT("CW, RFON");	break;
 		} 
 		putchar(')');
-		if (eedata.rdiv > 1) {
-			PRINT(" rdiv=%d (%10.3f MHz)", eedata.rdiv, (float)eedata.rf_freq/(float)eedata.rdiv);
-		}
+
 		if (eedata.mode & MODE_BEACON_BIT)
 			PRINT(" msg=#%d", eedata.msg);
 		crlf();
@@ -1105,7 +1074,7 @@ void cmd_channel(int ch) {
 }
 
 void cmd_save(int ch) {
-	if (ch >=0 && ch <CHANNELS)
+	if (ch >=0 && ch <MAX_CHANNELS)
 		eeprom_write_block(&rf,	(char *)(EEPROM_CHAN+sizeof(rf)*ch), sizeof(rf));
 	else
 		PRINTLN("Channel %d out of range", ch);
@@ -1136,11 +1105,40 @@ void cmd_debug(uint8_t argc, char *argv[]) {
 }
 
 #define MAXARGS  10
+
+#include <stdint.h>
+#include <limits.h>
+#include <stdint.h>
+#include <limits.h>
+uint32_t parse_decimal_number(const char *str) {
+	uint32_t result = 0;
+	uint8_t decimal_places = 0;
+	uint8_t decimal_seen = 0;
+
+	while (*str) {
+		if (*str == '.') {
+			if (decimal_seen++) return 0; // Invalid: multiple decimal points
+		} else if (*str >= '0' && *str <= '9') {
+			result = result * 10 + (*str - '0');
+			if (decimal_seen && ++decimal_places > 5) return 0; // Invalid: >5 digits after decimal
+		} else {
+			return 0; // Invalid character
+		}
+		str++;
+	}
+
+	while (decimal_places++ < 5) result *= 10; // Normalize to 5 decimal places
+
+	return result;
+}
+
+
 	
 void exec_command(char *buf)
 {
 	int16_t	  intarg;
 	double    dblarg;
+	uint32_t  longintarg;
 
 	char *argv[MAXARGS];
 	uint8_t argc, v;
@@ -1163,6 +1161,8 @@ void exec_command(char *buf)
 
 	intarg = atol(argv[1]);
 	dblarg = atof(argv[1]);
+	longintarg = parse_decimal_number(argv[1]);
+
 
 	if (strcasecmp_P(argv[0], PSTR("debug"))==0) {
 		cmd_debug(argc, argv);		return;
@@ -1193,19 +1193,23 @@ void exec_command(char *buf)
 			}
 		} else
 		if (strcasecmp_P(argv[0], PSTR("freq"))==0) {
-			cmd_freq(dblarg);  goto reload;
+			cmd_freq(longintarg);
+			goto reload;
 		} else
+#ifdef _ADF4351
 		if (strcasecmp_P(argv[0], PSTR("ref_int"))==0) {
 			cf.int_ref = dblarg;				goto save;
 		} else
-		if (strcasecmp_P(argv[0], PSTR("ref_ext"))==0) {
+#endif
+		if (strcasecmp_P(argv[0], PSTR("ref"))==0) {
 			cf.ext_ref = dblarg;				goto save;
 		} else
 		if (strcasecmp_P(argv[0], PSTR("i2c_addr"))==0) {
 			cf.i2c_addr = intarg;				goto save;
 		} else
 		if (strcasecmp_P(argv[0], PSTR("level"))==0) {
-			rf.level = intarg;					goto reload;
+			rf.level = intarg &3;
+			goto reload;
 		} else
 		if (strcasecmp_P(argv[0], PSTR("mode"))==0) {
 			rf.mode = intarg & 3;
@@ -1263,6 +1267,11 @@ void exec_command(char *buf)
 		cmd_test();
 		return;
 	}
+	if (strcasecmp_P(argv[0], PSTR("default"))==0) {
+		default_config();
+		goto reload;
+	}
+
 	PRINTLN("**Unknown Command: %s", argv[0]);
 	return;
 
@@ -1281,7 +1290,7 @@ static void diag_ON() {
 	SET(LOCKLED);
 	_delay_ms(100);
 	wdt_reset();
-	putchar('.');
+	// putchar('.');
 }
 
 static void diag_OFF() {
@@ -1295,19 +1304,12 @@ static void diag_OFF() {
 void load_config() {
 
 	eeprom_read_block(&cf,	(char *)(EEPROM_CONF),	sizeof(cf));
-#if _ADF4351
-	if (cf.maxmod > 4096)   cf.maxmod = 4096;
-#endif
+
 		PRINTLN("Magic number %d",cf.magic);
 
 	if (cf.magic != ZLPLL_MAGIC) {
 		cf.magic = ZLPLL_MAGIC;
-#if _ADF4351
-		cf.int_ref = 26.0;
-#else
-		cf.int_ref = 10.0;
-#endif
-		cf.ext_ref = 10.0;
+		cf.ext_ref = 1000000;
 		cf.max_doubler = 32;
 		cf.charge_pump = 3;
 		cf.bleed = 20;
@@ -1319,7 +1321,6 @@ void load_config() {
 		cf.t1 = 0;			// ms
 		cf.t2 = 5;			// ms
 		cf.gap = 0;
-		cf.pfd_freq = 20;	// MHz
 #if PWM_ENABLE
 		cf.pwmval = 2002;
 		cf.pwmtop = 8192;
@@ -1331,8 +1332,6 @@ void load_config() {
 		PRINTLN("Factory Defaults Loaded");
 		save_config();
 	}
-	if (cf.pfd_freq < 5 || cf.pfd_freq > 100)
-		cf.pfd_freq = 20;		// Default
 }
 
 
@@ -1451,7 +1450,7 @@ void every_1sec() {
 	// 1 second period
 	pll_locked = check_pll_locked();
 	
-	if (rf.rf_freq < 30.0)
+	if (rf.rf_freq < 30)
 		return;
 	
 	// Check for presence of external reference by checking RF level 		
@@ -1588,7 +1587,7 @@ main(void) {
 	// --------------------------------------------------------------------------
 
 	PRINTLN("ZLPLL Local Oscillator Rev " VERSION);
-	PRINTLN("(C)2012 W.Knowles ZL2BKC");
+	PRINTLN("(C)2008 - 2022 Wayne Knowles ZL2BKC, 2023 - 2025 Simon Eatough ZL2BRG");
 
 	
 	// --------------------------------------------------------------------------
@@ -1648,7 +1647,7 @@ main(void) {
 	ticks = t1sec = 100;		// 
 	tick4 = 0;					// Disable AUXLED updating
 	init_timer(ticks);
-	//TIMSK1 = _BV(OCIE1A); 		// Enable timer interrupt
+//	TIMSK1 = _BV(OCIE1A); 		// Enable timer interrupt
 	//--------------------------------------------------------------------------
 
 	cmd_channel(channel);		// Reload this time with RF enabled		
@@ -1662,7 +1661,7 @@ main(void) {
 	// Display frequency and level on LCD (if active)
 	if (lcd_active) {
 		lcdClear();
-		sprintf_P(cmdbuf, PSTR("%6.3f MHz"), rf.rf_freq);
+		sprintf_P(cmdbuf, PSTR("%lu MHz"), rf.rf_freq);
 		lcdPrintString(cmdbuf);
 		lcdGotoXY(0,1);
 		sprintf_P(cmdbuf, PSTR("Level: %d"), rf.level);
@@ -1710,15 +1709,21 @@ main(void) {
 			if (key == '\n' || key == '\r') {  // Newline
 				putchar('\n');
 				*cmdp = (char)0;
+				// Sanitize input buffer before executing the command
+				for (char *p = cmdbuf; *p; ++p) {
+					if (!isprint((unsigned char)*p) && *p != ' ') {
+						PRINTLN("Invalid input detected. Command aborted.");
+						cmdp = cmdbuf; // Reset buffer
+						show_prompt = 1;
+						return;
+					}
+				}
 				exec_command(cmdbuf);
 				show_prompt = 1;		// Display prompt
 				cmdp = cmdbuf;
-			} else if ( key == (char) 0x08 || key == (char)0x7F) { // Backspace
-				// Dealing with a backspace is complicated, so just start a new command
-				if (cmdp > cmdbuf) {
-					*cmdp-- = (char)0;
-					putchar(key); putchar(' '); putchar(key);  // Backspace					
-				} 
+			} else if ((key == (char)0x08 || key == (char)0x7F) && cmdp > cmdbuf) { // Backspace
+				cmdp--; // Move pointer back
+				PRINT("\b \b"); // Erase last character on screen
 			} else if (key == (char) 3) { // ^C
 				cmdp = cmdbuf;
 				PRINTLN("*CANCEL*");
@@ -1732,3 +1737,37 @@ main(void) {
 	return 0;
 }
 
+
+
+const __flash struct zlpll_data default_chanel_config [MAX_CHANNELS]={
+	{1022400000,0,0,1,0,0,0,0,0.0,0,0},
+	{1195200000,0.0,1,0,0,0,0,0,0,0,0},
+	{1173600000,0.0,1,0,0,0,0,0,0,0,0},
+	{1264800000,0.0,1,0,0,0,0,0,0,0,0},
+	{993600000 ,0.0,1,0,0,0,0,0,0,0,0},
+	{1180800000,0.0,1,0,0,0,0,0,0,0,0},
+	{561600000 ,0.0,1,0,0,0,0,0,0,0,0},
+	{1036800000,0.0,1,0,0,0,0,0,0,0,0},
+	{1036800000,0.0,1,0,0,0,0,0,0,0,0},
+	{1036800000,0.0,1,0,0,0,0,0,0,0,0},
+	{1036800000,0.0,1,0,0,0,0,0,0,0,0},
+	{1036800000,0.0,1,0,0,0,0,0,0,0,0},
+	{1036800000,0.0,1,0,0,0,0,0,0,0,0},
+	{1036800000,0.0,1,0,0,0,0,0,0,0,0},
+	{1036800000,0.0,1,0,0,0,0,0,0,0,0}
+};
+
+
+void default_config()
+{
+	uint8_t channel;
+	struct zlpll_data rf;
+	for (channel = 0;channel < MAX_CHANNELS;channel++)
+	{
+		memcpy_P(&rf, &default_chanel_config[channel],sizeof(rf));
+		eeprom_write_block(&rf,(const char *) (EEPROM_CHAN + sizeof(rf)* channel) ,	sizeof(rf));
+	}
+}
+
+
+	

@@ -26,7 +26,7 @@
 #define CONFIG_H_
 
 
-#define VERSION "4.2A"
+#define VERSION "4.4A"
 
 #if 1		// ADF5355, ZLPLL 14G
 #include "adf5355.h"
@@ -46,12 +46,12 @@
 #endif
 
 #define SWEEP		0
-#define CHANNELS	16
+#define MAX_CHANNELS	16
 #define CW_BEACON	1
 #define LOCK_TEST	1
 #define THUMBWHEEL	0		// Broken
 
-#if CHANNELS > 16
+#if MAX_CHANNELS > 16
 #error "CHANNELS must be <= 16"
 #endif
 

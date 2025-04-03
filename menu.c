@@ -39,7 +39,7 @@ extern uint16_t	pwmtop;
 
 extern void PWM_set(uint16_t, uint16_t);
 
-#define PACKED		__attribute__((__packed__))
+
 
 union value {
 	uint16_t	ui;

@@ -27,9 +27,10 @@
 #include <stdint.h>
 #include <avr/io.h>
 
+#define PACKED	__attribute__((__packed__))
 
 
-#define ZLPLL_MAGIC		0x4001
+#define ZLPLL_MAGIC		0x4002
 
 #define ADF4351_DATA	PORTB,PB3		// aka MOSI in SPI mode
 #define ADF4351_CLK		PORTB,PB5		// aka SCK
@@ -119,15 +120,15 @@ do { if (debug_##module) putchar(c); } while (0)
 #define INPUT(PORTBIT)	_DDRCLR(PORTBIT)
 
 typedef struct {
-	double		freq;			// RF Frequency (Afer VCO multiplier/divider??)
+	uint32_t	freq;			// RF Output Frequnecy (in 10Hz steps)
 	uint16_t	INT;
-	uint16_t    FRAC;
 	uint16_t	MOD;
 	uint8_t		RDIV;
 	uint32_t	FRAC1;
+	uint16_t    FRAC2;
 	uint32_t	reg[16];
-	float		ref;
-	float		freqerr;
+	uint32_t	ref;
+	uint32_t	freqerr;
 	int16_t		fsk_step;
 	int8_t		fsk_offset;
 	uint8_t		rf_mult;		// RF Multiplication factor (1=VCO Freq, 2=Doubler enabled)
@@ -137,19 +138,20 @@ typedef struct {
 } PLL_t;
 
 struct zlpll_data {
-	float	rf_freq;
-	float	step;
-	uint8_t rdiv;		// Reference divisor
-	
-	uint8_t	level:2;
-	uint8_t	mult:6;
-	uint8_t mode:2;		// LO, Ext Key Beacon, RF Key Beacon
-	uint8_t msg:2;		// CW Beacon message number
+	uint32_t rf_freq;
+	uint32_t	step;
+	uint8_t	rdiv;
+	uint8_t	level;
+	uint8_t	mult;
+	uint8_t mode;		// LO, Ext Key Beacon, RF Key Beacon
+	uint8_t msg;;		// CW Beacon message number
 	uint16_t spare1;
 	uint16_t spare2;
 	uint16_t spare3;
 	uint16_t spare4;
 };
+
+
 
 
 union param_data {
@@ -165,10 +167,9 @@ union param_data {
 
 struct config_data {
 	uint16_t	magic;
-	
-	float		int_ref;
-	float		ext_ref;
-	float		spare1;		
+	uint32_t	spare;
+	uint32_t	ext_ref;
+	uint32_t	spare1;
 	uint8_t		bleed;		
 	uint8_t		max_doubler;	// Maximum doubler frequency
 	uint8_t		charge_pump;
@@ -181,7 +182,7 @@ struct config_data {
 	uint8_t		t1;			// ms
 	uint8_t		t2;			// ms
 	uint8_t		gap;
-	uint8_t		pfd_freq;	// Phase detector freq
+	uint8_t		spare2;	
 
 #if PWM_ENABLE	
 	uint16_t	pwmval;
@@ -198,12 +199,13 @@ struct config_data {
 
 #define SB(val,pos)	(((uint32_t)(val))<<(pos))
 
+void default_config();
 
 uint8_t check_pll_locked();
 void cmd_channel(int ch);
 void SPI_MasterTransmit(char cData);
 uint16_t GCD(uint16_t a, uint16_t b);
-void set_freq(float);
+void set_freq(uint32_t freq);
 
 extern struct config_data cf;
 extern struct zlpll_data  rf;
@@ -225,5 +227,7 @@ extern uint8_t clkmode;
 #define MUXOUT_ALOCK	5
 #define MUXOUT_DLOCK	6
 #define MUXOUT_RESERVED	7
+
+
 
 #endif /* ZLPLL_H_ */
