@@ -100,7 +100,8 @@
 //		-	Reference divisor (RDIV) improvements with pfd command.
 //	Rev V4.4A
 //      - Fixed floating point precision register calculation inaccuracies by moving to 64/32bit integer math. 
-//      - Register calculations are based on Andy G4JNT's code. Frequency calculation now accurate to 10Hz below 6.8Ghz and //		- 20Hz above.
+//      - Register calculations are based on Andy G4JNT's code. Frequency calculation now accurate to 10Hz below 6.8Ghz and //		- 20Hz above. 
+//		- Added range checking for ref frequency
 // 
 // TODO:
 //		Check I2C Pullups to stop lockup at power on
@@ -1202,7 +1203,12 @@ void exec_command(char *buf)
 		} else
 #endif
 		if (strcasecmp_P(argv[0], PSTR("ref"))==0) {
-			cf.ext_ref = dblarg;				goto save;
+			cf.ext_ref = longintarg;
+			if (cf.ext_ref < 500000 || cf.ext_ref > 10000000){
+				PRINTLN("ref out of range");
+				cf.ext_ref = 1000000;
+			}
+			goto save;
 		} else
 		if (strcasecmp_P(argv[0], PSTR("i2c_addr"))==0) {
 			cf.i2c_addr = intarg;				goto save;
