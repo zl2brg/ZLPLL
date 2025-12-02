@@ -97,7 +97,7 @@ void ADF5355_set_freq(uint32_t freq)
 	uint32_t pfd;
 	uint8_t intmode, prescaler;
 	uint8_t output_div = 0;
-	uint8_t vco_mult;
+	uint8_t rfdiv_sel;
 
 	// VCO frequency must be between 3400-6800MHz, so calculate a suitable
 	// divider value to generate the target frequency
@@ -115,47 +115,48 @@ void ADF5355_set_freq(uint32_t freq)
 
 	// VCO frequency must be between 3400-6800MHz, so calculate a suitable
 	// divider value to generate the target frequency
-
 	if (freq >= 680000000)
 	{
 		output_div = 1;
-		vco_mult = 0;
+		rfdiv_sel = 0;
 	}
 	else if (freq >= 340000000 && freq < 680000000)
 	{
-		vco_mult = 0;
+		rfdiv_sel = 0;
 		output_div = 1;
 	}
 	else if (freq >= 170000000 && freq < 340000000)
 	{
-		vco_mult = 1;
+		rfdiv_sel = 1;
 		output_div = 2;
 	}
 	else if (freq >= 85000000 && freq < 170000000)
 	{
-		vco_mult = 2;
+		rfdiv_sel = 2;
 		output_div = 4;
 	}
 	else if (freq >= 42500000 && freq < 85000000)
 	{
-		vco_mult = 3;
+		rfdiv_sel = 3;
 		output_div = 8;
 	}
 	else if (freq >= 21250000 && freq < 42500000)
 	{
-		vco_mult = 4;
+		rfdiv_sel = 4;
 		output_div = 16;
 	}
 	else if (freq >= 10625000 && freq < 21250000)
 	{
-		vco_mult = 5;
+		rfdiv_sel = 5;
 		output_div = 32;
 	}
 	else
 	{
-		vco_mult = 6;
+		rfdiv_sel = 6;
 		output_div = 64;
 	}
+	printf("freq=%lu, rfdiv_sel=%d, output_div=%d\n", freq, rfdiv_sel, output_div);
+	
 	rfB_enable = freq >= MAX_VCO_FREQ ? 1 : 0;
 	rfA_enable = !rfB_enable;
 	// Calculate VCO frequency
@@ -163,7 +164,7 @@ void ADF5355_set_freq(uint32_t freq)
 		VCO_Frq = freq >> 1;
 	else
 	{
-		uint32_t temp = freq << vco_mult;
+		uint32_t temp = freq << rfdiv_sel;
 		VCO_Frq = temp;
 	}
 
@@ -199,7 +200,7 @@ void ADF5355_set_freq(uint32_t freq)
 		  pfd,		 // Phase Frequency Detector frequency in 10Hz units
 		  fref,		 // Reference frequency in 10Hz units
 		  RDIV,		 // Reference Divider
-		  vco_mult,	 // VCO multiplier
+		  rfdiv_sel,	 // VCO multiplier
 		  output_div // Output divider
 	);				 // Reference divider value
 
@@ -248,7 +249,7 @@ void ADF5355_set_freq(uint32_t freq)
 	);
 	PLL_Write2(6 | SB(0xA, 25)				// Reserved bits
 			   | SB(1, 24)					// Feedback = fundamental
-			   | SB(output_div, 21)			// RF Out A divider
+			   | SB(rfdiv_sel, 21)			// RF Out A divider
 			   | SB(cf.spur & 1, 30)		// Spur reduction = gated bleed
 			   | SB(cf.bleed ? 1 : 0, 29)	// Negative bleed enable
 			   | SB(cf.bleed & 0xff, 13)	// Bleed current (was 5 for 10MHz ref)

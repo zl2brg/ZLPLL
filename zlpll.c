@@ -103,6 +103,8 @@
 //      - Register calculations are based on Andy G4JNT's code. Frequency calculation now accurate to 10Hz below 6.8Ghz and //		- 20Hz above. 
 //		- Added range checking for ref frequency
 // 
+// Rev V4.4B 
+//		- Fixed bug in frequency parser and incorrect register 6 divisor setting
 // TODO:
 //		Check I2C Pullups to stop lockup at power on
 //
@@ -1109,26 +1111,34 @@ void cmd_debug(uint8_t argc, char *argv[]) {
 
 #include <stdint.h>
 #include <limits.h>
-#include <stdint.h>
-#include <limits.h>
 uint32_t parse_decimal_number(const char *str) {
 	uint32_t result = 0;
 	uint8_t decimal_places = 0;
 	uint8_t decimal_seen = 0;
+	uint8_t digit;
 
 	while (*str) {
 		if (*str == '.') {
 			if (decimal_seen++) return 0; // Invalid: multiple decimal points
 		} else if (*str >= '0' && *str <= '9') {
-			result = result * 10 + (*str - '0');
-			if (decimal_seen && ++decimal_places > 5) return 0; // Invalid: >5 digits after decimal
+			digit = *str - '0';
+			// Check for overflow: result * 10 + digit must fit in uint32_t
+			if (result > (UINT32_MAX - digit) / 10) return 0;
+			result = result * 10 + digit;
+			if (decimal_seen) decimal_places++;
+			if (decimal_places > 5) return 0; // Invalid: >5 digits after decimal
 		} else {
 			return 0; // Invalid character
 		}
 		str++;
 	}
 
-	while (decimal_places++ < 5) result *= 10; // Normalize to 5 decimal places
+	// Normalize to 5 decimal places
+	while (decimal_places < 5) {
+		if (result > UINT32_MAX / 10) return 0; // Overflow check
+		result *= 10;
+		decimal_places++;
+	}
 
 	return result;
 }
@@ -1139,7 +1149,7 @@ void exec_command(char *buf)
 {
 	int16_t	  intarg;
 	double    dblarg;
-	uint32_t  longintarg;
+	uint32_t  longfreq;
 
 	char *argv[MAXARGS];
 	uint8_t argc, v;
@@ -1162,7 +1172,7 @@ void exec_command(char *buf)
 
 	intarg = atol(argv[1]);
 	dblarg = atof(argv[1]);
-	longintarg = parse_decimal_number(argv[1]);
+	
 
 
 	if (strcasecmp_P(argv[0], PSTR("debug"))==0) {
@@ -1194,7 +1204,11 @@ void exec_command(char *buf)
 			}
 		} else
 		if (strcasecmp_P(argv[0], PSTR("freq"))==0) {
-			cmd_freq(longintarg);
+			longfreq = parse_decimal_number(argv[1]);
+			if (longfreq < 5400000 || longfreq > 1360000000)
+			 PRINTLN("Frequency out of range");
+			else cmd_freq(longfreq);
+
 			goto reload;
 		} else
 #ifdef _ADF4351
@@ -1203,7 +1217,7 @@ void exec_command(char *buf)
 		} else
 #endif
 		if (strcasecmp_P(argv[0], PSTR("ref"))==0) {
-			cf.ext_ref = longintarg;
+			cf.ext_ref = longfreq;
 			if (cf.ext_ref < 500000 || cf.ext_ref > 10000000){
 				PRINTLN("ref out of range");
 				cf.ext_ref = 1000000;

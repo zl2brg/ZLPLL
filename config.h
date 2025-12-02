@@ -3,7 +3,7 @@
  *
  *
 
- *   Copyright (C) 2008-2022 Wanye Knowles ZL2BKC. 2023 Simon Eatough ZL2BRG
+ *   Copyright (C) 2008-2022 Wanye Knowles ZL2BKC. 2023- Simon Eatough ZL2BRG
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@
 #define CONFIG_H_
 
 
-#define VERSION "4.4A"
+#define VERSION "4.4B"
 
 #if 1		// ADF5355, ZLPLL 14G
 #include "adf5355.h"
